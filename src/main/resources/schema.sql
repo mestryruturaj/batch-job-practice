@@ -1,0 +1,1 @@
+create table if not exists product(productId int auto_increment primary key, title varchar(64), description varchar(256), price decimal(6,2), discount decimal(5,2), discountedPrice decimal(6,2));
