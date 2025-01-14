@@ -11,6 +11,7 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.context.annotation.Bean;
@@ -45,6 +46,10 @@ public class BatchConfig {
         return new StepBuilder("calculateDiscountedPriceStep", jobRepository)
                 .<Product, Product>chunk(10, platformTransactionManager)
                 .faultTolerant()
+                .skip(Exception.class)
+                .skipLimit(3)
+                .retry(Exception.class)
+                .retryLimit(3)
                 .reader(itemReader)
                 .processor(itemProcessor)
                 .writer(itemWriter)
@@ -71,7 +76,6 @@ public class BatchConfig {
             public Product process(Product item) throws Exception {
                 double price = item.getPrice();
                 double discount = item.getDiscount();
-                ;
                 double discountedPrice = price * (100 - discount) / 100;
 
                 item.setDiscountedPrice(discountedPrice);
@@ -82,10 +86,25 @@ public class BatchConfig {
 
     @Bean
     public ItemWriter<Product> itemWriter(DataSource dataSource) {
-        return new JdbcBatchItemWriterBuilder<Product>()
+        JdbcBatchItemWriter<Product> itemWriter = new JdbcBatchItemWriterBuilder<Product>()
                 .dataSource(dataSource)
                 .sql("insert into product(title, description, price, discount, discountedPrice) values(:title, :description, :price, :discount, :discountedPrice);")
                 .beanMapped()
                 .build();
+
+        // Explicitly initialize the writer
+        try {
+            itemWriter.afterPropertiesSet();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize JdbcBatchItemWriter", e);
+        }
+
+        return items -> {
+            log.info("ItemWriter has started to log the current chunk.");
+            for (Product item : items) {
+                log.info("Writing product to db: {}", item);
+            }
+            itemWriter.write(items);
+        };
     }
 }
